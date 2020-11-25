@@ -108,7 +108,7 @@ class ProxyMiddleware:
 
     def process_request(self, request, spider):
         using_proxy = proxy.random_https_proxy()
-        print('using_proxy:', using_proxy)
+        spider.logger.info('using_proxy: %s' % using_proxy)
         request.meta['proxy'] = using_proxy
 
         return None
@@ -122,4 +122,12 @@ class LocalRetryMiddleware(RetryMiddleware):
             proxy.update_proxies(request.meta['proxy'])
             return self._retry(request, exception, spider)
 
+
+class UserAgentMiddleware:
+
+    def process_request(self, request, spider):
+
+        request.meta['headers'] = spider.settings.get('DEFAULT_REQUEST_HEADERS')
+
+        return None
 

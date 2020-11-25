@@ -3,66 +3,53 @@ import time
 import re
 import json
 from ..items import BilibiliItem, ListItem
+from scrapy_redis.spiders import RedisSpider
 
 
-class RankSpider(scrapy.Spider):
+class RankSpider(RedisSpider):
     name = 'rank'
+    redis_key = 'rank:start_urls'
     allowed_domains = ['bilibili.com']
     rank_type_dict = {
-        '全站': '0',
-        '番剧': '1',
-        '国产动画': '4',
-        '国创相关': '168',
-        '纪录片': '3',
-        '动画': '1',
-        '音乐': '3',
-        '舞蹈': '129',
-        '游戏': '4',
-        '知识': '36',
-        '数码': '188',
-        '生活': '160',
-        '美食': '211',
-        '鬼畜': '119',
-        '时尚': '155',
-        '娱乐': '5',
-        '影视': '181',
-        '电影': '2',
-        '电视剧': '5',
-        '原创': '0',
-        '新人': '0',
+        '0': '全站',
+        '168': '国创相关',
+        '1': '动画',
+        '3': '音乐',
+        '129': '舞蹈',
+        '4': '游戏',
+        '36': '知识',
+        '188': '数码',
+        '160': '生活',
+        '211': '美食',
+        '119': '鬼畜',
+        '155': '时尚',
+        '5': '娱乐',
+        '181': '影视',
+        # '原创': '0',
+        # '新人': '0',
     }
-    list_rank_types = [
-        '番剧',  # list
-        '国产动画',  # list
-        '纪录片',  # list
-        '电影',  # list
-        '电视剧',  # list
-    ]
+    list_rank_types = {
+        '1': '番剧',  # list
+        '4': '国产动画',  # list
+        '3': '纪录片',  # list
+        '2': '电影',  # list
+        '5': '电视剧',  # list
+    }
 
-    def start_requests(self):
-        headers = self.settings['DEFAULT_REQUEST_HEADERS']
-        for rank_type, rank_id in self.rank_type_dict.items():
-            if rank_type == '原创':
-                url = self.settings['RID_URL'].format(rank_id, 'origin')
-                yield scrapy.Request(url=url, headers=headers,
-                                     callback=self.parse, meta={'rank_type': rank_type})
-            elif rank_type == '新人':
-                url = self.settings['RID_URL'].format(rank_id, 'rookie')
-                yield scrapy.Request(url=url, headers=headers,
-                                     callback=self.parse, meta={'rank_type': rank_type})
-            elif rank_type in self.list_rank_types:
-                if rank_type != '番剧':
-                    url = self.settings['LIST_URL'].format(rank_id)
-                    yield scrapy.Request(url=url, headers=headers,
-                                         callback=self.parse_list, meta={'rank_type': rank_type})
-                else:
-                    url = self.settings['NEW_LIST_URL'].format(rank_id)
-                    # print('番剧url', url)
-                    yield scrapy.Request(url=url, headers=headers,
-                                         callback=self.parse_list, meta={'rank_type': rank_type})
-            else:
-                url = self.settings['RID_URL'].format(rank_id, 'all')
-                yield scrapy.Request(url=url, headers=headers, callback=self.parse, meta={'rank_type': rank_type})
+    def make_requests_from_url(self, url):
+        if 'origin' in url:
+            return scrapy.Request(url=url, callback=self.parse, meta={'rank_type': '原创'})
+        elif 'rookie' in url:
+            return scrapy.Request(url=url, callback=self.parse, meta={'rank_type': '新人'})
+        elif 'pgc/season' in url:
+            rank_type = self.list_rank_types[url.split('season_type=')[-1]]
+            return scrapy.Request(url=url, callback=self.parse_list, meta={'rank_type': rank_type})
+        elif 'pgc/web' in url:
+            # print('番剧url', url)
+            return scrapy.Request(url=url, callback=self.parse_list, meta={'rank_type': '番剧'})
+        else:
+            rank_type = self.rank_type_dict[url.split('rid=')[1].split('&')[0]]
+            return scrapy.Request(url=url, callback=self.parse, meta={'rank_type': rank_type})
 
     def parse(self, response):
 

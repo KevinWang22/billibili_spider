@@ -19,7 +19,7 @@ class ProxySpider:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                           'Chrome/80.0.3987.106 Safari/537.36',
         }
-        for page in range(1, 3):
+        for page in range(1, 5):
             url = 'http://www.xiladaili.com/gaoni/%d' % page
             try:
                 response = requests.get(url=url, headers=headers)

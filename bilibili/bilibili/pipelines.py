@@ -13,7 +13,9 @@ class RankPipeline:
     def __init__(self):
         settings = get_project_settings()
         db_name = settings['MONGODB_DBNAME']
-        db_client = MongoClient()
+        db_host = settings['MONGODB_HOST']
+        db_post = settings['MONGODB_POST']
+        db_client = MongoClient(host=db_host, port=db_post)
         db = db_client[db_name]
         doc_name = settings['MONGODB_DOCNAME']
         self.b_post = db[doc_name]
