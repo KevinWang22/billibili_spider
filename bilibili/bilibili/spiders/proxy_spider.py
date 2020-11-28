@@ -84,10 +84,12 @@ class ProxySpider:
     def update_proxies(self, url):
         """更新代理列表，当某一代理列表为空时，重新获取一次"""
         if re.match(r'^http://', url):
-            self.http_proxies.remove(url.split('//')[1]) 
+            if url in self.http_proxies:
+                self.http_proxies.remove(url)
             if len(self.http_proxies) <= 0:
                 self.get_proxy_list()
         else:
-            self.https_proxies.remove(url)
+            if url in self.https_proxies:
+                self.https_proxies.remove(url)
             if len(self.https_proxies) <= 0:
                 self.get_proxy_list()
