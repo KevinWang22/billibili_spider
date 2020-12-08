@@ -6,21 +6,30 @@
 
 # useful for handling different item types with a single interface
 from pymongo import MongoClient
-from scrapy.utils.project import get_project_settings
+from itemadapter import ItemAdapter
 
 
 class RankPipeline:
-    def __init__(self):
-        settings = get_project_settings()
-        db_name = settings['MONGODB_DBNAME']
-        db_host = settings['MONGODB_HOST']
-        db_post = settings['MONGODB_POST']
-        db_client = MongoClient(host=db_host, port=db_post)
-        db = db_client[db_name]
-        doc_name = settings['MONGODB_DOCNAME']
-        self.b_post = db[doc_name]
+
+    def __init__(self, db_host, db_post, db_name, db_doc):
+        self.db_host = db_host
+        self.db_post = db_post
+        self.db_name = db_name
+        self.db_doc = db_doc
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls(crawler.settings.get('MONGODB_HOST'), crawler.settings.get('MONGODB_POST'),
+                   crawler.settings.get('MONGODB_DBNAME'), crawler.settings.get('MONGODB_DOCNAME'))
+
+    def open_spider(self, spider):
+        self.db_client = MongoClient(host=self.db_host, port=self.db_post)
+        self.db = self.db_client[self.db_name]
+        self.b_post = self.db[self.db_doc]
+
+    def close_spider(self, spider):
+        self.db_client.close()
 
     def process_item(self, item, spider):
-        b_info = dict(item)
-        self.b_post.insert(b_info)
+        self.b_post.insert(ItemAdapter(item).asdict())
         return item
