@@ -117,7 +117,7 @@ class ProxyMiddleware:
 class LocalRetryMiddleware(RetryMiddleware):
 
     def process_exception(self, request, exception, spider):
-        spider.logger.info(exception)
+        spider.logger.info('Retry_middle_error' + exception.text)
         if not request.meta.get('dont_retry', False):
             proxy.update_proxies(request.meta['proxy'])
             return self._retry(request, exception, spider)
