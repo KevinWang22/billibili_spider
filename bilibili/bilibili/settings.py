@@ -13,8 +13,8 @@ BOT_NAME = 'bilibili'
 SPIDER_MODULES = ['bilibili.spiders']
 NEWSPIDER_MODULE = 'bilibili.spiders'
 
-MONGODB_HOST = 'host'
-MONGODB_PORT = 'port'
+MONGODB_HOST = '192.168.1.104'
+MONGODB_PORT = '27017'
 MONGODB_DBNAME = 'bilibili'
 MONGODB_DOCNAME = 'rank'
 
@@ -30,15 +30,17 @@ NEW_LIST_URL = 'https://api.bilibili.com/pgc/web/rank/list?day=3&season_type={}'
 ROBOTSTXT_OBEY = False
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
-CONCURRENT_REQUESTS = 16
+CONCURRENT_REQUESTS = 32
 
 # Configure a delay for requests for the same website (default: 0)
 # See https://docs.scrapy.org/en/latest/topics/settings.html#download-delay
 # See also autothrottle settings and docs
-DOWNLOAD_DELAY = 3
+DOWNLOAD_DELAY = 2
+
+DOWNLOAD_TIMEOUT = 15
 # The download delay setting will honor only one of:
-CONCURRENT_REQUESTS_PER_DOMAIN = 16
-#CONCURRENT_REQUESTS_PER_IP = 16
+# CONCURRENT_REQUESTS_PER_DOMAIN = 32
+CONCURRENT_REQUESTS_PER_IP = 5
 
 # Disable cookies (enabled by default)
 #COOKIES_ENABLED = False
@@ -112,13 +114,13 @@ SCHEDULER_PERSIST = False
 DUPEFILTER_CLASS = 'scrapy_redis.dupefilter.RFPDupeFilter'
 
 # Redis host and port
-REDIS_HOST = 'host'
+REDIS_HOST = '192.168.1.104'
 REDIS_PORT = 6379
 
 # retry settings
 # Enable and configure retry
 RETRY_ENABLE = True
-RETRY_TIMES = 5
+RETRY_TIMES = 10
 HTTPERROR_ALLOWED_CODE = [412]
 
 

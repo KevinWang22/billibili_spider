@@ -25,8 +25,8 @@ class RankSpider(RedisSpider):
         '155': '时尚',
         '5': '娱乐',
         '181': '影视',
-        # '原创': '0',
-        # '新人': '0',
+        '原创': '0',
+        '新人': '0',
     }
     list_rank_types = {
         '1': '番剧',  # list
@@ -37,6 +37,7 @@ class RankSpider(RedisSpider):
     }
 
     def make_requests_from_url(self, url):
+
         if 'origin' in url:
             return scrapy.Request(url=url, callback=self.parse, meta={'rank_type': '原创'})
         elif 'rookie' in url:
@@ -62,11 +63,11 @@ class RankSpider(RedisSpider):
             aid = rank_item['aid']
             bvid = rank_item['bvid']
             author = rank_item['owner']['name']
-            view = rank_item['stat']['view']    # 观看数
+            view = rank_item['stat']['view']  # 观看数
             comment = rank_item['stat']['danmaku']  # 弹幕数
             favour = rank_item['stat']['favorite']  # 收藏数
-            like = rank_item['stat']['like']    # 点赞数
-            coin = rank_item['stat']['coin']    # 投币数
+            like = rank_item['stat']['like']  # 点赞数
+            coin = rank_item['stat']['coin']  # 投币数
             url = base_url + bvid
             rank_day = time.strftime('%Y-%m-%d', time.localtime())
 
