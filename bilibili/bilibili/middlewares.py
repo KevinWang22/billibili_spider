@@ -3,11 +3,19 @@
 # See documentation in:
 # https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
+import time
+import requests
+from random import choice
+from redis import StrictRedis
 from scrapy import signals
 # useful for handling different item types with a single interface
 from itemadapter import is_item, ItemAdapter
-from scrapy.downloadermiddlewares.retry import RetryMiddleware
-from .settings import proxy
+from scrapy.downloadermiddlewares.retry import RetryMiddleware, response_status_message
+from scrapy.settings.default_settings import RETRY_HTTP_CODES
+
+redis_client = StrictRedis()
+proxy_url = 'http://webapi.http.zhimacangku.com/getip?num=30&type=2&pro=&city=0&yys=0&port=11&pack=139612&ts=1&ys=0' \
+            '&cs=0&lb=1&sb=0&pb=45&mr=2&regions='
 
 
 class BilibiliSpiderMiddleware:
@@ -106,28 +114,72 @@ class BilibiliDownloaderMiddleware:
 
 class ProxyMiddleware:
 
+    def __init__(self, redis_host, redis_port):
+        self.redis_client = StrictRedis(host=redis_host, port=redis_port)
+
+    @classmethod
+    def from_crawler(cls, crawler):
+
+        return cls(redis_host=crawler.settings['REDIS_HOST'], redis_port=crawler.settings['REDIS_PORT'])
+
     def process_request(self, request, spider):
-        using_proxy = proxy.random_https_proxy()
-        spider.logger.info('using_proxy: %s' % using_proxy)
-        request.meta['proxy'] = using_proxy
+        """给请求增加代理"""
+        if not request.meta.get('proxy', False):
+            if not self.redis_client.exists(spider.settings['REDIS_PROXY_KEY']):
+                get_proxies(spider)
+            using_proxy = self.redis_client.lpop(spider.settings['REDIS_PROXY_KEY']).decode()
+            if '/' in using_proxy:
+                using_proxy = using_proxy.replace('/', '')
+            spider.logger.info('using_proxy: %s' % using_proxy)
+            request.meta['proxy'] = using_proxy
 
-        return None
+    def process_response(self, request, response, spider):
+        """回收有效的代理"""
+        if response.status not in RETRY_HTTP_CODES:
+            self.redis_client.rpush(spider.settings['REDIS_PROXY_KEY'], request.meta['proxy'])
 
-
-class LocalRetryMiddleware(RetryMiddleware):
-
-    def process_exception(self, request, exception, spider):
-        spider.logger.info('Retry_middle_error' + exception.text)
-        if not request.meta.get('dont_retry', False):
-            proxy.update_proxies(request.meta['proxy'])
-            return self._retry(request, exception, spider)
+        return response
 
 
 class UserAgentMiddleware:
 
     def process_request(self, request, spider):
 
-        request.meta['headers'] = spider.settings.get('DEFAULT_REQUEST_HEADERS')
+        request.headers['user-agent'] = choice(spider.settings['USER_AGENTS_LIST'])
 
-        return None
 
+class MyRetryMiddleware(RetryMiddleware):
+
+    def process_response(self, request, response, spider):
+        if request.meta.get('dont_retry', False):
+            return response
+        if response.status in self.retry_http_codes:
+            request.meta['proxy'] = None
+            reason = response_status_message(response.status)
+            return self._retry(request, reason, spider)
+
+        return response
+
+    def process_exception(self, request, exception, spider):
+        if isinstance(exception, self.EXCEPTIONS_TO_RETRY) \
+                and not request.meta.get('dont_retry', False):
+            request.meta['proxy'] = None
+            return self._retry(request, exception, spider)
+
+
+def get_proxies(spider):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/88.0.4324.96 Safari/537.36',
+        'Host': 'webapi.http.zhimacangku.com'
+    }
+    resp = requests.get(url=proxy_url, headers=headers).json()
+    if resp['success']:
+        for ip_info in resp['data']:
+            ip = ip_info['ip']
+            port = ip_info['port']
+            full_proxy = ip + ':' + str(port)
+            # expire_time = ip_info['expire_time']
+            redis_client.rpush(spider.settings['REDIS_PROXY_KEY'], full_proxy)
+    else:
+        spider.crawler.engine.close_spider(spider, '代理ip获取失败，原因: ' + resp['msg'])

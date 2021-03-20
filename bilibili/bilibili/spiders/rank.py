@@ -2,7 +2,8 @@ import scrapy
 import time
 import re
 import json
-from ..items import BilibiliItem, ListItem
+import random
+from ..items import BilibiliItem, ListItem, PageItem, EpItem
 from scrapy_redis.spiders import RedisSpider
 
 
@@ -10,6 +11,9 @@ class RankSpider(RedisSpider):
     name = 'rank'
     redis_key = 'rank:start_urls'
     allowed_domains = ['bilibili.com']
+    custom_settings = {
+        'LOG_FILE': './logs/%slog%s.log' % (name, time.strftime('%y%m%d-%H-%M', time.localtime()))
+    }
     rank_type_dict = {
         '0': '全站',
         '168': '国创相关',
@@ -53,89 +57,171 @@ class RankSpider(RedisSpider):
             return scrapy.Request(url=url, callback=self.parse, meta={'rank_type': rank_type})
 
     def parse(self, response):
-
+        """
+        普通up主上传的视频的解析方法，如果视频没有分集，可以直接解析完全部数据，如果视频有分集的话，需要再请求一个detail接口，
+        在detail中取每个分集的信息
+        :param response: 返回包
+        :return: 没有分集的时候，返回BilibiliItem对象； 有分集的时候，返回一个Request对象
+        """
         rank_type = response.meta['rank_type']
+        rank_date = time.strftime('%Y-%m-%d', time.localtime())
         rank_item_list = response.json()['data']['list']
         base_url = 'https://www.bilibili.com/video/'
+        # 每一个item对应一个视频，如果视频没有分集，那直接取完所有数据，提交item就行了，如果有分集，就需要再发请求获取每集数据
         for rank_item in rank_item_list:
-            title = rank_item['title']
-            rank = rank_item['score']
-            aid = rank_item['aid']
-            bvid = rank_item['bvid']
-            author = rank_item['owner']['name']
-            view = rank_item['stat']['view']  # 观看数
-            comment = rank_item['stat']['danmaku']  # 弹幕数
-            favour = rank_item['stat']['favorite']  # 收藏数
-            like = rank_item['stat']['like']  # 点赞数
-            coin = rank_item['stat']['coin']  # 投币数
-            url = base_url + bvid
-            rank_day = time.strftime('%Y-%m-%d', time.localtime())
-
             item = BilibiliItem()
-            item['title'] = title
-            item['rank_num'] = rank
-            item['author'] = author
-            item['url'] = url
+            item['bvid'] = rank_item['bvid']
+            item['title'] = rank_item['title']
+            item['author'] = rank_item['owner']['name']
+            item['author_mid'] = rank_item['owner']['mid']
+            item['aid'] = rank_item['aid']
+            item['score'] = rank_item['score']
+            item['description'] = rank_item['desc']
             item['rank_type'] = rank_type
-            item['rank_day'] = rank_day
-            item['play_num'] = view
-            item['comment_num'] = comment
-            item['coin'] = coin
-            item['favorite'] = favour
-            item['like'] = like
-            item['aid'] = aid
-            # print(item)
+            item['rank_date'] = rank_date
+            item['url'] = base_url + rank_item['bvid']
+            # 观看数
+            item['view'] = rank_item['stat']['view']
+            # 弹幕数
+            item['danmakus'] = rank_item['stat']['danmaku']
+            # 投币数
+            item['coin'] = rank_item['stat']['coin']
+            # 收藏数
+            item['favorite'] = rank_item['stat']['favorite']
+            # 点赞数
+            item['like'] = rank_item['stat']['like']
+            if rank_item['videos'] == 1:
+                item['pages'] = [{'aid': rank_item['aid'],
+                                  'cid': rank_item['cid'],
+                                  'page': 1,
+                                  'part': item['title'],
+                                  }]
+            else:
+                item['pages'] = []
+
+                detail_url = self.settings.get('DETAIL_URL').format(bvid=item['bvid'], aid=item['aid'])
+                yield scrapy.Request(url=detail_url, callback=self.parse_detail, meta={'rank_date': rank_date,
+                                                                                       'rank_type': rank_type})
+
+            yield item
+
+    def parse_detail(self, response):
+        """
+        解析正常up主上传的视频中的分集信息
+        :param response: 请求返回的包
+        :return item: BilibiliItem对象
+        """
+        rank_date = response.meta['rank_date']
+        rank_type = response.meta['rank_type']
+        detail_infos = response.json()['data']
+        pages = detail_infos['View']['pages']
+        item = PageItem()
+        for page in pages:
+            item['rank_date'] = rank_date
+            item['rank_type'] = rank_type
+            item['aid'] = detail_infos['View']['aid']
+            item['cid'] = page['cid']
+            item['page'] = page['page']
+            item['part'] = page['part']
+
             yield item
 
     def parse_list(self, response):
-
-        detail_header = self.settings['DEFAULT_REQUEST_HEADERS']
+        """
+        解析番剧、电视剧这些B站自己上传的视频信息，因为这些都是有分集的，所以在取完整部剧的信息后，需要调用每个分集的info接口，获取分集信息
+        :param response: make_request_from_url返回的包
+        :return: Request对象，请求播放页数据，从播放页的html文件中提取信息
+        """
         rank_type = response.meta['rank_type']
         if rank_type == '番剧':
+            # 番剧和其他类型返回的数据的key不一样
             # print(response.json())
             rank_item_list = response.json()['result']['list']
         else:
             rank_item_list = response.json()['data']['list']
 
         for rank_item in rank_item_list:
-            title = rank_item['title']
-            url = rank_item['url']
-            rank = rank_item['rank']
-            season_id = rank_item['season_id']
-            view = rank_item['stat']['view']
-            comment = rank_item['stat']['danmaku']
-            follow = rank_item['stat']['follow']
 
             item = ListItem()
-            item['title'] = title
-            item['rank'] = rank
-            item['url'] = url
-            item['season_id'] = season_id
-            item['view'] = view
-            item['comment'] = comment
-            item['follow'] = follow
             item['rank_type'] = rank_type
-            item['rank_day'] = time.strftime('%Y-%m-%d', time.localtime())
+            item['rank_date'] = time.strftime('%Y-%m-%d', time.localtime())
+            item['season_id'] = rank_item['season_id']
+            item['title'] = rank_item['title']
+            item['url'] = rank_item['url']
+            item['rank_score'] = rank_item['pts']
+            item['badge'] = rank_item['badge']
+            item['total_stat'] = {
+                'danmakus': rank_item['stat']['danmaku'],
+                'follow': rank_item['stat']['follow'],
+                'series_follow': rank_item['stat']['series_follow'],
+                'view': rank_item['stat']['view'],
+            }
             # print(item)
 
-            yield scrapy.Request(url=url, headers=detail_header,
-                                 callback=self.parse_detail, meta={'list_item': item})
+            yield scrapy.Request(url=item['url'], callback=self.parse_list_detail, meta={'list_item': item})
 
-    def parse_detail(self, response):
-
+    def parse_list_detail(self, response):
+        """
+        提取剧集播放页的信息，对于每一集，都要单独请求一个分集的info接口，读取分集的stat数据
+        :param response: parse_list请求返回的包
+        :return: Request对象，调用info接口
+        """
         item = response.meta['list_item']
-
-        author = response.xpath('//div[@class="up-info clearfix"]/a/span/text()').extract_first()
-        item['author'] = author
-
         init_state_text = re.findall(r'__INITIAL_STATE__=(.*?);', response.text)[0]
         # print(init_state)
         init_state = json.loads(init_state_text)
-        coin = init_state['mediaInfo']['stat']['coins']
+        media_info = init_state['mediaInfo']
+        item['total_stat'].update({
+            'coins': media_info['stat']['coins'],
+            'reply': media_info['stat']['reply'],
+            'share': media_info['stat']['share'],
+        })
+        item['id'] = media_info['id']
+        item['series'] = media_info['series']
+        item['evaluate'] = media_info['evaluate']
+        item['up_info'] = {
+            'mid': media_info['upInfo']['mid'],
+            'name': media_info['upInfo']['name'],
+        }
+        item['rating'] = {
+            'score': media_info['rating']['score'],
+            'count': media_info['rating']['count'],
+        }
+        item['ep_list'] = []
+        yield item
 
-        item['coin'] = coin
+        # 每集的基础信息
+        ep_list = init_state['epList']
+        for ep in ep_list:
+            ep_item = EpItem()
+            ep_item['rank_date'] = item['rank_date']
+            ep_item['rank_type'] = item['rank_type']
+            ep_item['season_id'] = item['season_id']
+            ep_item['id'] = ep['id']
+            ep_item['aid'] = ep['aid']
+            ep_item['bvid'] = ep['bvid']
+            ep_item['cid'] = ep['cid']
+            ep_item['title'] = ep['title']
+            ep_item['title_format'] = ep['titleFormat']
+            ep_item['long_title'] = ep['longTitle']
+            ep_info_url = self.settings.get('EP_INFO_URL').format(ep_id=ep['id'])
+            headers = {
+                'origin': 'https://www.bilibili.com',
+                'referer': item['url'],
+            }
+            yield scrapy.Request(url=ep_info_url, callback=self.parse_ep_info, headers=headers, meta={'item': ep_item})
 
-        # print(item)
+    def parse_ep_info(self, response):
+        """
+        解析每集的stat数据
+        :param response: parse_list_detail返回的包
+        :return: ListItem对象
+        """
+        item = response.meta['item']
+        ep_data = response.json()['data']
+        ep_stat = ep_data['stat']
+        item['stat'] = ep_stat
+
         yield item
 
 
